@@ -1,0 +1,17 @@
+.icon {
+    margin-left: 5px;
+    display: none;
+}
+input {
+    width: 400px;
+}
+.error {
+    display: inline-block;
+    padding: 5px;
+    background-color: rgba(93, 0, 0, 0.38);
+    border: 1px solid rgba(93, 0, 0, 0.69);
+    margin: 10px 0;
+}
+.error-wrapper {
+    display: none;
+}

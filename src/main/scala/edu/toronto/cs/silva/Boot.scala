@@ -19,6 +19,7 @@ object Boot extends App
   val service = system.actorOf(Props[SilvaActor], "silva")
 
   implicit val timeout = Timeout(5.seconds)
+  val binding = Http.Bind(service, "localhost", port = 8080)
   // start a new HTTP server on port 8080 with our service actor as the handler
-  IO(Http) ? Http.Bind(service, "localhost", port = 8080)
+  IO(Http) ? binding
 }

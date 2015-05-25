@@ -1,0 +1,25 @@
+<!DOCTYPE html>
+<html>
+<head lang="en">
+    <meta charset="UTF-8">
+    <title>SilVA VCF scorer</title>
+    <link rel="stylesheet" href="//maxcdn.bootstrapcdn.com/font-awesome/4.3.0/css/font-awesome.min.css">
+    <link rel="stylesheet" href="main.css">
+    <script src="//ajax.googleapis.com/ajax/libs/jquery/1.9.1/jquery.min.js"></script>
+    <script src="js/vendor/jquery.ui.widget.js"></script>
+    <script src="js/jquery.iframe-transport.js"></script>
+    <script src="js/jquery.fileupload.js"></script>
+    <script src="main.js"></script>
+</head>
+<body>
+<h3>Please upload a VCF file up to 200MB in size</h3>
+
+    <span>
+            <input id="fileupload" type="file" placeholder="VCF file location" name="file"
+                   data-url="http://localhost:8080/vcf-upload">
+                <span class="icon"><i class="fa fa-cog fa-spin"></i></span>
+    </span>
+
+<div class="error-wrapper"><div class="error">An error has occurred</div></div>
+</body>
+</html>
