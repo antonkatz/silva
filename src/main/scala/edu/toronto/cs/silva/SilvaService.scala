@@ -1,6 +1,9 @@
 package edu.toronto.cs.silva
 
+import java.util.Date
+
 import akka.actor.Actor
+import akka.event.{Logging, LoggingAdapter}
 import edu.toronto.cs.silva.Vcf.HarmfulnessEntry
 import spray.http.HttpHeaders.RawHeader
 import spray.http.MultipartFormData
@@ -8,46 +11,94 @@ import spray.http.StatusCodes._
 import spray.json.{JsArray, JsNumber, JsString}
 import spray.routing.{HttpService, StandardRoute}
 
+import scala.concurrent.ExecutionContext.Implicits.global
+import scala.concurrent.Future
 import scala.language.{implicitConversions, postfixOps}
+import scala.util.Random
 
 /**
  *
  */
 private[silva] class SilvaActor extends Actor with SilvaService {
+  setLogging(Logging(context.system, this))
+
   def actorRefFactory = context
 
   def receive = runRoute(routes)
 }
 
 private trait SilvaService extends HttpService {
+  private var logging: Option[LoggingAdapter] = None
+  protected def setLogging(l: LoggingAdapter) = logging = Option(l)
+
+  /** Holds the id of the request with the results. */
+  private var resultsHolder = Map[String, Either[String, Iterable[HarmfulnessEntry]]]()
+  /** Holds the id of a request mapped to the expiry time. */
+  private var expiry = Map[String, Long]()
+  /** How many VCFs are currently being processed. */
+  private var processingCounter = 0
+
   val routes = {
-    get {
-      path("") {
-        complete("Test")
-      }
-    } ~
-        respondWithHeader(RawHeader("Access-Control-Allow-Origin", "*")) {
-          path("vcf-upload") {
-            options {
-              complete("")
-            } ~
-                get {
-                  complete("")
-                } ~
-                post {
-                  entity(as[MultipartFormData]) { vcfUploadLogic }
-                }
-          }
+    // fixme. can't be all
+    respondWithHeader(RawHeader("Access-Control-Allow-Origin", "*")) {
+      get {
+        path("results" / Rest) {id ⇒
+          resultsRetrieval(id)
         }
+      } ~ path("vcf-upload") {
+        post {
+          entity(as[MultipartFormData]) { vcfUploadLogic }
+        }
+      }
+    }
   }
 
   /** All processing steps applied to an uploaded VCF file. */
   private def vcfUploadLogic(data: MultipartFormData): StandardRoute = {
-    /*fixme add counter. max simultaneous processes 3. */
-    val vcf = optionToError(getVcf(data), ErrorMessages.noVCF)
+    cleanExpired()
+    if (processingCounter >= ServerSettings.maxSimultaneousProcesses) {
+      logging foreach {log ⇒ log.warning(Messages.logWarningMaxProcess)}
+      return complete(ServiceUnavailable, Messages.maxProcesses)
+    }
+
+    val time = new Date().getTime
+    val id = time.toString + Random.nextInt
+    expiry += id → (time + ServerSettings.expireIn)
+
+    asyncProcessing(id, data)
+    complete(id)
+  }
+
+  private def asyncProcessing(id: String, data: MultipartFormData) = Future {
+    processingCounter += 1
+
+    val vcf = optionToError(getVcf(data), Messages.noVCF)
     val harmfulness: Either[String, Iterable[HarmfulnessEntry]] = vcf.right map { vcf ⇒
-      optionToError(Vcf.getHarmfulness(vcf), ErrorMessages.couldNotFindHarmfulness)
-    } joinRight
+      optionToError(Vcf.getHarmfulness(vcf), Messages.couldNotFindHarmfulness)
+    } joinRight;
+    resultsHolder += id → harmfulness
+
+    processingCounter -= 1
+  }
+
+  private def cleanExpired() = {
+    val time = new Date().getTime
+    val expired = expiry.filter(_._2 > time)
+
+    resultsHolder = resultsHolder.filterNot(e ⇒ expired contains e._1)
+    expiry = expiry.filter(_._2 <= time)
+  }
+
+  private def resultsRetrieval(id: String): StandardRoute = {
+    val harmfulness = resultsHolder.get(id) match {
+      case Some(h) ⇒ h
+      case _ ⇒ Left("The requested result does not exist")
+    }
+    harmfulness.right foreach {_ ⇒
+      resultsHolder -= id
+      expiry -= id
+    }
+
     val json: Either[String, List[JsArray]] = harmfulness.right map { _ map entryToJson toList }
     json match {
       case Right(j) ⇒ complete(JsArray(j: _*) toString)
