@@ -29,6 +29,7 @@ private[silva] class SilvaActor extends Actor with SilvaService {
 
 private trait SilvaService extends HttpService {
   private var logging: Option[LoggingAdapter] = None
+
   protected def setLogging(l: LoggingAdapter) = logging = Option(l)
 
   /** Holds the id of the request with the results. */
@@ -41,8 +42,11 @@ private trait SilvaService extends HttpService {
   val routes = {
     // fixme. can't be all
     respondWithHeader(RawHeader("Access-Control-Allow-Origin", "*")) {
+      options {
+            complete("")
+      } ~
       get {
-        path("results" / Rest) {id ⇒
+        path("results" / Rest) { id ⇒
           resultsRetrieval(id)
         }
       } ~ path("vcf-upload") {
@@ -57,12 +61,12 @@ private trait SilvaService extends HttpService {
   private def vcfUploadLogic(data: MultipartFormData): StandardRoute = {
     cleanExpired()
     if (processingCounter >= ServerSettings.maxSimultaneousProcesses) {
-      logging foreach {log ⇒ log.warning(Messages.logWarningMaxProcess)}
+      logging foreach { log ⇒ log.warning(Messages.logWarningMaxProcess) }
       return complete(ServiceUnavailable, Messages.maxProcesses)
     }
 
     val time = new Date().getTime
-    val id = time.toString + Random.nextInt
+    val id = "ID" + time + Random.nextInt
     expiry += id → (time + ServerSettings.expireIn)
 
     asyncProcessing(id, data)
@@ -83,23 +87,33 @@ private trait SilvaService extends HttpService {
 
   private def cleanExpired() = {
     val time = new Date().getTime
-    val expired = expiry.filter(_._2 > time)
+    val expired = expiry.filter(_._2 < time)
 
     resultsHolder = resultsHolder.filterNot(e ⇒ expired contains e._1)
-    expiry = expiry.filter(_._2 <= time)
+    // in case the results have not been computed yet, do not expire
+    expiry = expiry filterKeys (id ⇒ !{expired contains id} || {resultsHolder contains id})
+
+    if (expired.nonEmpty) logging foreach { l ⇒ l.info(Messages.logHasExpired) }
   }
 
   private def resultsRetrieval(id: String): StandardRoute = {
-    val harmfulness = resultsHolder.get(id) match {
-      case Some(h) ⇒ h
-      case _ ⇒ Left("The requested result does not exist")
+    resultsHolder.get(id) match {
+      case Some(harmfulness) ⇒
+        harmfulness.right foreach { _ ⇒
+          resultsHolder -= id
+          expiry -= id
+        }
+        getAvailableResult(harmfulness)
+      case _ ⇒
+        if (expiry contains id)
+          complete(NoContent)
+        else
+          complete(BadRequest, Messages.idDoesNotExist)
     }
-    harmfulness.right foreach {_ ⇒
-      resultsHolder -= id
-      expiry -= id
-    }
+  }
 
-    val json: Either[String, List[JsArray]] = harmfulness.right map { _ map entryToJson toList }
+  private def getAvailableResult(result: Either[String, Iterable[HarmfulnessEntry]]) = {
+    val json: Either[String, List[JsArray]] = result.right map { _ map entryToJson toList }
     json match {
       case Right(j) ⇒ complete(JsArray(j: _*) toString)
       case Left(e) ⇒ complete(BadRequest, e)

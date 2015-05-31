@@ -15,11 +15,19 @@
 <h3>Please upload a VCF file up to 200MB in size</h3>
 
     <span>
-            <input id="fileupload" type="file" placeholder="VCF file location" name="file"
-                   data-url="http://localhost:8080/vcf-upload">
-                <span class="icon"><i class="fa fa-cog fa-spin"></i></span>
+        <input id="fileupload" type="file" placeholder="VCF file location" name="file"
+               data-url="http://localhost:8080/vcf-upload">
+        <div class="progress-holder">
+            <i class="fa fa-cog fa-spin"></i>
+            <span>Uploaded</span>
+            <span class="uploaded"></span>
+        </div>
     </span>
 
-<div class="error-wrapper"><div class="error">An error has occurred</div></div>
+<div class="error-wrapper">
+    <div class="error">An error has occurred</div>
+</div>
+
+<div id="data-holder"></div>
 </body>
 </html>
